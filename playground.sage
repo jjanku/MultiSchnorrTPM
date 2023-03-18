@@ -1,6 +1,7 @@
 from tpm2_pytss import *
 from hashlib import sha256
 
+
 # P256
 p = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
 K = GF(p)
@@ -17,6 +18,7 @@ E.set_order(
 
 coord_len = (int(p).bit_length() + 7) // 8
 F = GF(E.order())
+
 
 def param_to_int(p: TPM2B_ECC_PARAMETER):
     return int.from_bytes(p.buffer.tobytes(), byteorder='big')
@@ -108,16 +110,26 @@ def keygen():
     return key_handle, X
 
 
-key_handle, X1 = keygen()
+def test_ecdaa():
+    key_handle, X1 = keygen()
 
-counter, R = ecdaa_commit(key_handle)
-msg = b'hello'
-digest = sha256(msg).digest()
-s, k = ecdaa_sign(key_handle, counter, digest)
-c = int.from_bytes(sha256(k + digest).digest())
-assert s * G == R + c * X1
+    msg = b'hello'
+    digest = sha256(msg).digest()
+    counter, R = ecdaa_commit(key_handle)
+    s, k = ecdaa_sign(key_handle, counter, digest)
+    c = int.from_bytes(sha256(k + digest).digest())
+    assert s * G == R + c * X1
 
-x2 = F.random_element()
-X2 = x2 * G
-X = ecdh(key_handle, X2)
-assert X == x2 * X1
+
+def test_ecdh():
+    key_handle, X1 = keygen()
+
+    x2 = F.random_element()
+    X2 = x2 * G
+    X = ecdh(key_handle, X2)
+    assert X == x2 * X1
+
+
+if __name__ == '__main__':
+    test_ecdaa()
+    test_ecdh()
