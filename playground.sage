@@ -120,6 +120,8 @@ def test_ecdaa():
     c = int.from_bytes(sha256(k + digest).digest())
     assert s * G == R + c * X1
 
+    ectx.flush_context(key_handle)
+
 
 def test_ecdh():
     key_handle, X1 = keygen()
@@ -128,6 +130,8 @@ def test_ecdh():
     X2 = x2 * G
     X = ecdh(key_handle, X2)
     assert X == x2 * X1
+
+    ectx.flush_context(key_handle)
 
 
 if __name__ == '__main__':
