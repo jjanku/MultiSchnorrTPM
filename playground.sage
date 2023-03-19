@@ -134,6 +134,34 @@ def test_ecdh():
     ectx.flush_context(key_handle)
 
 
+def test_ecdaa_multi():
+    def unzip(list):
+        return zip(*list)
+
+    # higher number may cause oom for object contexts
+    GROUP_SIZE = 3
+    key_handles, Xs = unzip([keygen() for _ in range(GROUP_SIZE)])
+
+    msg = b'hello'
+    digest = sha256(msg).digest()
+    counters, Rs = unzip([
+        ecdaa_commit(key_handle)
+        for key_handle in key_handles
+    ])
+    ss, ks = unzip([
+        ecdaa_sign(key_handles[i], counters[i], digest)
+        for i in range(GROUP_SIZE)
+    ])
+    cs = [int.from_bytes(sha256(k + digest).digest()) for k in ks]
+    s = sum(ss)
+    R = sum(Rs)
+    assert s * G == R + sum(ci * Xi for ci, Xi in zip(cs, Xs))
+
+    for key_handle in key_handles:
+        ectx.flush_context(key_handle)
+
+
 if __name__ == '__main__':
     test_ecdaa()
     test_ecdh()
+    test_ecdaa_multi()
