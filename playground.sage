@@ -83,8 +83,8 @@ def keygen():
     in_private = TPM2B_SENSITIVE_CREATE()
 
     eccParams = TPMS_ECC_PARMS()
-    eccParams.scheme.scheme = TPM2_ALG.ECDAA
-    eccParams.scheme.details.ecdaa.hashAlg = TPM2_ALG.SHA256
+    eccParams.scheme.scheme = TPM2_ALG.ECDH
+    eccParams.scheme.details.ecdh.hashAlg = TPM2_ALG.NULL
     eccParams.symmetric.algorithm = TPM2_ALG.NULL
     eccParams.kdf.scheme = TPM2_ALG.NULL
     eccParams.curveID = TPM2_ECC.NIST_P256
@@ -94,7 +94,7 @@ def keygen():
             nameAlg=TPM2_ALG.SHA256,
             objectAttributes=(
                 TPMA_OBJECT.USERWITHAUTH
-                | TPMA_OBJECT.SIGN_ENCRYPT
+                | TPMA_OBJECT.DECRYPT
                 | TPMA_OBJECT.FIXEDTPM
                 | TPMA_OBJECT.FIXEDPARENT
                 | TPMA_OBJECT.SENSITIVEDATAORIGIN
@@ -162,6 +162,7 @@ def test_ecdaa_multi():
 
 
 if __name__ == '__main__':
-    test_ecdaa()
-    test_ecdh()
-    test_ecdaa_multi()
+    # test_ecdaa()
+    # test_ecdh()
+    # test_ecdaa_multi()
+    keygen()
