@@ -83,8 +83,7 @@ def keygen():
     in_private = TPM2B_SENSITIVE_CREATE()
 
     eccParams = TPMS_ECC_PARMS()
-    eccParams.scheme.scheme = TPM2_ALG.ECDH
-    eccParams.scheme.details.ecdh.hashAlg = TPM2_ALG.NULL
+    eccParams.scheme.scheme = TPM2_ALG.NULL
     eccParams.symmetric.algorithm = TPM2_ALG.NULL
     eccParams.kdf.scheme = TPM2_ALG.NULL
     eccParams.curveID = TPM2_ECC.NIST_P256
@@ -110,6 +109,19 @@ def keygen():
     return key_handle, X
 
 
+def ecdh_zgen(key_handle, P):
+    P1 = TPM2B_ECC_POINT(
+        TPMS_ECC_POINT(
+            x=int(P[0]).to_bytes(coord_len),
+            y=int(P[1]).to_bytes(coord_len)
+        )
+    )
+
+    Q, counter = ectx.ec_ephemeral(TPM2_ECC.NIST_P256)
+    Z1, _ = ectx.zgen_2_phase(key_handle, P1, Q, TPM2_ALG.ECDH, counter)
+    return point_to_sage(Z1.point)
+
+
 def test_ecdaa():
     key_handle, X1 = keygen()
 
@@ -129,6 +141,17 @@ def test_ecdh():
     x2 = F.random_element()
     X2 = x2 * G
     X = ecdh(key_handle, X2)
+    assert X == x2 * X1
+
+    ectx.flush_context(key_handle)
+
+
+def test_ecdh_zgen():
+    key_handle, X1 = keygen()
+
+    x2 = F.random_element()
+    X2 = x2 * G
+    X = ecdh_zgen(key_handle, X2)
     assert X == x2 * X1
 
     ectx.flush_context(key_handle)
@@ -165,4 +188,4 @@ if __name__ == '__main__':
     # test_ecdaa()
     # test_ecdh()
     # test_ecdaa_multi()
-    keygen()
+    test_ecdh_zgen()
