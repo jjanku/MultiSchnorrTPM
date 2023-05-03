@@ -28,6 +28,11 @@ def point_to_sage(P: TPMS_ECC_POINT):
     return E(param_to_int(P.x), param_to_int(P.y))
 
 
+def encode_point(P):
+    x, y = map(int, P.xy())
+    return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(coord_len)
+
+
 ectx = ESAPI('swtpm:host=localhost')
 
 
@@ -114,8 +119,8 @@ def test_ecdaa():
     key_handle, X1 = keygen()
 
     msg = b'hello'
-    digest = sha256(msg).digest()
     counter, R = ecdaa_commit(key_handle)
+    digest = sha256(msg + encode_point(R)).digest()
     s, k = ecdaa_sign(key_handle, counter, digest)
     c = int.from_bytes(sha256(k + digest).digest())
     assert s * G == R + c * X1
@@ -143,18 +148,18 @@ def test_ecdaa_multi():
     key_handles, Xs = unzip([keygen() for _ in range(GROUP_SIZE)])
 
     msg = b'hello'
-    digest = sha256(msg).digest()
     counters, Rs = unzip([
         ecdaa_commit(key_handle)
         for key_handle in key_handles
     ])
+    R = sum(Rs)
+    digest = sha256(msg + encode_point(R)).digest()
     ss, ks = unzip([
         ecdaa_sign(key_handles[i], counters[i], digest)
         for i in range(GROUP_SIZE)
     ])
-    cs = [int.from_bytes(sha256(k + digest).digest()) for k in ks]
     s = sum(ss)
-    R = sum(Rs)
+    cs = [int.from_bytes(sha256(k + digest).digest()) for k in ks]
     assert s * G == R + sum(ci * Xi for ci, Xi in zip(cs, Xs))
 
     for key_handle in key_handles:
