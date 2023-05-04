@@ -1,0 +1,17 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    steps:
+    - uses: actions/checkout@v3
+    - run: sudo dnf install -y tpm2-tss-devel swtpm python3-tpm2-pytss sagemath
+
+    - run: bash run-swtpm.sh &
+    - run: sage playground.sage
+
+    - run: pkill swtpm
