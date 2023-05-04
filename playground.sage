@@ -2,7 +2,8 @@ from tpm2_pytss import *
 from hashlib import sha256
 
 
-# P256
+# NIST P256
+# https://neuromancer.sk/std/nist/P-256
 p = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
 K = GF(p)
 a = K(0xffffffff00000001000000000000000000000000fffffffffffffffffffffffc)
@@ -16,21 +17,21 @@ E.set_order(
     0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551 * 0x1
 )
 
-coord_len = (int(p).bit_length() + 7) // 8
+COORD_LEN = (int(p).bit_length() + 7) // 8
 F = GF(E.order())
 
 
-def param_to_int(p: TPM2B_ECC_PARAMETER):
+def tpm_param_to_int(p: TPM2B_ECC_PARAMETER):
     return int.from_bytes(p.buffer.tobytes(), byteorder='big')
 
 
-def point_to_sage(P: TPMS_ECC_POINT):
-    return E(param_to_int(P.x), param_to_int(P.y))
+def tpm_point_to_sage(P: TPMS_ECC_POINT):
+    return E(tpm_param_to_int(P.x), tpm_param_to_int(P.y))
 
 
 def encode_point(P):
     x, y = map(int, P.xy())
-    return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(coord_len)
+    return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(COORD_LEN)
 
 
 ectx = ESAPI('swtpm:host=localhost')
@@ -39,14 +40,14 @@ ectx = ESAPI('swtpm:host=localhost')
 def ecdaa_commit(key_handle, P=G):
     P1 = TPM2B_ECC_POINT(
         TPMS_ECC_POINT(
-            x=int(P[0]).to_bytes(coord_len),
-            y=int(P[1]).to_bytes(coord_len)
+            x=int(P[0]).to_bytes(COORD_LEN),
+            y=int(P[1]).to_bytes(COORD_LEN)
         )
     )
     _s2 = TPM2B_SENSITIVE_DATA()
     _y2 = TPM2B_ECC_PARAMETER()
     _K, _L, E, counter = ectx.commit(key_handle, P1, _s2, _y2)
-    E = point_to_sage(E.point)
+    E = tpm_point_to_sage(E.point)
     return counter, E
 
 
@@ -67,11 +68,12 @@ def ecdaa_sign(key_handle, counter, digest):
     )
 
     sig = ectx.sign(key_handle, digest, in_scheme, validation)
-    s = param_to_int(sig.signature.ecdaa.signatureS)
+    s = tpm_param_to_int(sig.signature.ecdaa.signatureS)
     k = sig.signature.ecdaa.signatureR.buffer.tobytes()
     return s, k
 
 
+# static ECDH oracle
 # https://eprint.iacr.org/2013/667.pdf
 def ecdh(key_handle, P):
     # Q = rP
@@ -84,7 +86,7 @@ def ecdh(key_handle, P):
     return (s * P - Q) / c
 
 
-def keygen():
+def ecdaa_keygen():
     in_private = TPM2B_SENSITIVE_CREATE()
 
     eccParams = TPMS_ECC_PARMS()
@@ -110,18 +112,21 @@ def keygen():
         )
     )
 
-    key_handle, out_public, _, _, _ = ectx.create_primary(in_private, in_public)
-    X = point_to_sage(out_public.publicArea.unique.ecc)
+    key_handle, out_public, _, _, _ = ectx.create_primary(
+        in_private, in_public
+    )
+    X = tpm_point_to_sage(out_public.publicArea.unique.ecc)
     return key_handle, X
 
 
 def test_ecdaa():
-    key_handle, X1 = keygen()
+    key_handle, X1 = ecdaa_keygen()
 
-    msg = b'hello'
     counter, R = ecdaa_commit(key_handle)
+    msg = b'hello'
     digest = sha256(msg + encode_point(R)).digest()
     s, k = ecdaa_sign(key_handle, counter, digest)
+
     c = int.from_bytes(sha256(k + digest).digest())
     assert s * G == R + c * X1
 
@@ -129,11 +134,12 @@ def test_ecdaa():
 
 
 def test_ecdh():
-    key_handle, X1 = keygen()
+    key_handle, X1 = ecdaa_keygen()
 
     x2 = F.random_element()
     X2 = x2 * G
     X = ecdh(key_handle, X2)
+
     assert X == x2 * X1
 
     ectx.flush_context(key_handle)
@@ -144,21 +150,25 @@ def test_ecdaa_multi():
         return zip(*list)
 
     # higher number may cause oom for object contexts
+    # since the TPM is accessed directly without a resource manager
+    # (such as https://github.com/tpm2-software/tpm2-abrmd)
     GROUP_SIZE = 3
-    key_handles, Xs = unzip([keygen() for _ in range(GROUP_SIZE)])
+    key_handles, Xs = unzip([ecdaa_keygen() for _ in range(GROUP_SIZE)])
 
-    msg = b'hello'
     counters, Rs = unzip([
         ecdaa_commit(key_handle)
         for key_handle in key_handles
     ])
     R = sum(Rs)
+
+    msg = b'hello'
     digest = sha256(msg + encode_point(R)).digest()
     ss, ks = unzip([
         ecdaa_sign(key_handles[i], counters[i], digest)
         for i in range(GROUP_SIZE)
     ])
     s = sum(ss)
+
     cs = [int.from_bytes(sha256(k + digest).digest()) for k in ks]
     assert s * G == R + sum(ci * Xi for ci, Xi in zip(cs, Xs))
 
