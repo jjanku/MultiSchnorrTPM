@@ -1,5 +1,5 @@
 from tpm2_pytss import *
-from hashlib import sha256
+from hashlib import sha256, sha512
 import hashlib
 
 
@@ -30,9 +30,12 @@ def tpm_point_to_sage(P: TPMS_ECC_POINT):
     return E(tpm_param_to_int(P.x), tpm_param_to_int(P.y))
 
 
-def encode_point(P):
+def encode_point(P, compress=False):
     x, y = map(int, P.xy())
-    return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(COORD_LEN)
+    if compress:
+        return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(COORD_LEN)
+    else:
+        return b'\x04' + x.to_bytes(COORD_LEN) + y.to_bytes(COORD_LEN)
 
 
 def tpm_hash_alg(name):
@@ -157,6 +160,31 @@ def test_ecdh():
     ectx.flush_context(key_handle)
 
 
+# tests the options for converting an ECDAA signature into a Schnorr signature,
+# relies on double hash size, short message length, point compression, and
+# non-standard hashing order to remove double-hashing and "hide" the extra
+# random value k
+def test_ecdaa_compact():
+    key_handle, X1 = ecdaa_keygen(hash_alg='sha512')
+
+    counter, R = ecdaa_commit(key_handle)
+    R_bytes = encode_point(R, compress=True)
+    msg = b'hello'
+    # add padding
+    msg = msg.ljust(sha512().digest_size - len(R_bytes), b'\x00')
+    data = msg + R_bytes
+    s, k = ecdaa_sign(key_handle, counter, data, hash_alg='sha512')
+
+    # NB: a single sha512 call
+    # if k is considered a part of the message m = k || msg
+    # then (R, s) is a non-standard Schnorr signature for public key X
+    # where the challenge is computed as H(m || R)
+    c = F(int.from_bytes(sha512(k + data).digest()))
+    assert s * G == R + c * X1
+
+    ectx.flush_context(key_handle)
+
+
 def test_ecdaa_multi(group_size=3):
     def unzip(list):
         return zip(*list)
@@ -187,6 +215,7 @@ def test_ecdaa_multi(group_size=3):
 if __name__ == '__main__':
     test_ecdaa()
     test_ecdh()
+    test_ecdaa_compact()
     # group size > 3 may cause oom for object contexts
     # since the TPM is accessed directly without a resource manager
     # (such as https://github.com/tpm2-software/tpm2-abrmd)
