@@ -1,5 +1,6 @@
 from tpm2_pytss import *
 from hashlib import sha256
+import hashlib
 
 
 # NIST P256
@@ -34,6 +35,15 @@ def encode_point(P):
     return (b'\x02' if y % 2 == 0 else b'\x03') + x.to_bytes(COORD_LEN)
 
 
+def tpm_hash_alg(name):
+    if name == 'sha256':
+        return TPM2_ALG.SHA256
+    elif name == 'sha512':
+        return TPM2_ALG.SHA512
+    else:
+        raise NotImplementedError()
+
+
 ectx = ESAPI('swtpm:host=localhost')
 
 
@@ -51,12 +61,12 @@ def ecdaa_commit(key_handle, P=G):
     return counter, E
 
 
-def ecdaa_sign(key_handle, counter, digest):
+def ecdaa_sign(key_handle, counter, digest, hash_alg='sha256'):
     in_scheme = TPMT_SIG_SCHEME(
         scheme=TPM2_ALG.ECDAA,
         details=TPMU_SIG_SCHEME(
             ecdaa=TPMS_SCHEME_ECDAA(
-                hashAlg=TPM2_ALG.SHA256,
+                hashAlg=tpm_hash_alg(hash_alg),
                 count=counter
             )
         )
@@ -75,23 +85,25 @@ def ecdaa_sign(key_handle, counter, digest):
 
 # static ECDH oracle
 # https://eprint.iacr.org/2013/667.pdf
-def ecdh(key_handle, P):
+def ecdh(key_handle, P, hash_alg='sha256'):
+    H = hashlib.new(hash_alg)
     # Q = rP
     counter, Q = ecdaa_commit(key_handle, P)
-    digest = 32 * b'\x00'
+    digest = H.digest_size * b'\x00'
     # s = r+cx
     s, k = ecdaa_sign(key_handle, counter, digest)
-    c = F(int.from_bytes(sha256(k + digest).digest()))
+    H.update(k + digest)
+    c = F(int.from_bytes(H.digest()))
     # sP = (r+cx)P = rP+cxP = Q+cxP
     return (s * P - Q) / c
 
 
-def ecdaa_keygen():
+def ecdaa_keygen(hash_alg='sha256'):
     in_private = TPM2B_SENSITIVE_CREATE()
 
     eccParams = TPMS_ECC_PARMS()
     eccParams.scheme.scheme = TPM2_ALG.ECDAA
-    eccParams.scheme.details.ecdaa.hashAlg = TPM2_ALG.SHA256
+    eccParams.scheme.details.ecdaa.hashAlg = tpm_hash_alg(hash_alg)
     eccParams.symmetric.algorithm = TPM2_ALG.NULL
     eccParams.kdf.scheme = TPM2_ALG.NULL
     eccParams.curveID = TPM2_ECC.NIST_P256
@@ -127,7 +139,7 @@ def test_ecdaa():
     digest = sha256(msg + encode_point(R)).digest()
     s, k = ecdaa_sign(key_handle, counter, digest)
 
-    c = int.from_bytes(sha256(k + digest).digest())
+    c = F(int.from_bytes(sha256(k + digest).digest()))
     assert s * G == R + c * X1
 
     ectx.flush_context(key_handle)
@@ -169,7 +181,7 @@ def test_ecdaa_multi():
     ])
     s = sum(ss)
 
-    cs = [int.from_bytes(sha256(k + digest).digest()) for k in ks]
+    cs = [F(int.from_bytes(sha256(k + digest).digest())) for k in ks]
     assert s * G == R + sum(ci * Xi for ci, Xi in zip(cs, Xs))
 
     for key_handle in key_handles:
