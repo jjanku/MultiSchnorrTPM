@@ -185,7 +185,33 @@ def test_ecdaa_compact():
     ectx.flush_context(key_handle)
 
 
-def test_ecdaa_multi(group_size=3):
+# multi-signatures with one TPM
+def test_multi_ecdaa_one(group_size=5):
+    key_handle, X1 = ecdaa_keygen()
+    # non-TPM signers
+    x2s = [F.random_element() for _ in range(group_size - 1)]
+    X2s = [x * G for x in x2s]
+    X = X1 + sum(X2s)
+
+    counter, R1 = ecdaa_commit(key_handle)
+    r2s = [F.random_element() for _ in range(group_size - 1)]
+    R2s = [r * G for r in r2s]
+    R = R1 + sum(R2s)
+
+    msg = b'hello'
+    digest = sha256(encode_point(X) + encode_point(R) + msg).digest()
+    s1, k = ecdaa_sign(key_handle, counter, digest)
+    c = F(int.from_bytes(sha256(k + digest).digest()))
+    s2s = [r + c * x for r, x in zip(r2s, x2s)]
+    s = s1 + sum(s2s)
+
+    assert s * G == R + c * X
+
+    ectx.flush_context(key_handle)
+
+
+# multi-signatures with no restriction on the number of TPMs
+def test_multi_ecdaa_many(group_size=3):
     def unzip(list):
         return zip(*list)
 
@@ -216,7 +242,8 @@ if __name__ == '__main__':
     test_ecdaa()
     test_ecdh()
     test_ecdaa_compact()
+    test_multi_ecdaa_one()
     # group size > 3 may cause oom for object contexts
     # since the TPM is accessed directly without a resource manager
     # (such as https://github.com/tpm2-software/tpm2-abrmd)
-    test_ecdaa_multi(3)
+    test_multi_ecdaa_many(3)
