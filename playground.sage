@@ -157,15 +157,11 @@ def test_ecdh():
     ectx.flush_context(key_handle)
 
 
-def test_ecdaa_multi():
+def test_ecdaa_multi(group_size=3):
     def unzip(list):
         return zip(*list)
 
-    # higher number may cause oom for object contexts
-    # since the TPM is accessed directly without a resource manager
-    # (such as https://github.com/tpm2-software/tpm2-abrmd)
-    GROUP_SIZE = 3
-    key_handles, Xs = unzip([ecdaa_keygen() for _ in range(GROUP_SIZE)])
+    key_handles, Xs = unzip([ecdaa_keygen() for _ in range(group_size)])
 
     counters, Rs = unzip([
         ecdaa_commit(key_handle)
@@ -177,7 +173,7 @@ def test_ecdaa_multi():
     digest = sha256(msg + encode_point(R)).digest()
     ss, ks = unzip([
         ecdaa_sign(key_handles[i], counters[i], digest)
-        for i in range(GROUP_SIZE)
+        for i in range(group_size)
     ])
     s = sum(ss)
 
@@ -191,4 +187,7 @@ def test_ecdaa_multi():
 if __name__ == '__main__':
     test_ecdaa()
     test_ecdh()
-    test_ecdaa_multi()
+    # group size > 3 may cause oom for object contexts
+    # since the TPM is accessed directly without a resource manager
+    # (such as https://github.com/tpm2-software/tpm2-abrmd)
+    test_ecdaa_multi(3)
