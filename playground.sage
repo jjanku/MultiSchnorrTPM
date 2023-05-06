@@ -139,7 +139,7 @@ def test_ecdaa():
 
     counter, R = ecdaa_commit(key_handle)
     msg = b'hello'
-    digest = sha256(msg + encode_point(R)).digest()
+    digest = sha256(encode_point(R) + msg).digest()
     s, k = ecdaa_sign(key_handle, counter, digest)
 
     c = F(int.from_bytes(sha256(k + digest).digest()))
@@ -199,7 +199,7 @@ def test_multi_ecdaa_one(group_size=5):
     R = R1 + sum(R2s)
 
     msg = b'hello'
-    digest = sha256(encode_point(X) + encode_point(R) + msg).digest()
+    digest = sha256(encode_point(R) + encode_point(X) + msg).digest()
     s1, k = ecdaa_sign(key_handle, counter, digest)
     c = F(int.from_bytes(sha256(k + digest).digest()))
     s2s = [r + c * x for r, x in zip(r2s, x2s)]
